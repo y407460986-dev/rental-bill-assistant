@@ -1,0 +1,15 @@
+-- Statements may be issued in currencies other than EUR/USD. Such bills are
+-- stored and reviewed as records; charging and PayPal stay EUR-only.
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'GBP';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'PLN';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'CZK';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'CHF';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'SEK';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'NOK';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'DKK';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'HUF';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'RON';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'BGN';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'CAD';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'AUD';
+ALTER TYPE "Currency" ADD VALUE IF NOT EXISTS 'JPY';

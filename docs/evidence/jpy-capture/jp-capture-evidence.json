@@ -1,0 +1,17 @@
+{
+  "orderId": "1AF40716RK5773512",
+  "status": "COMPLETED",
+  "customId": "jpy-check",
+  "payee": "H7NSZ5HDLY7SE",
+  "amount": {
+    "currency_code": "JPY",
+    "value": "3292",
+    "breakdown": {}
+  },
+  "captureId": "7DA20485R21098600",
+  "captureStatus": "COMPLETED",
+  "captureAmount": {
+    "currency_code": "JPY",
+    "value": "3292"
+  }
+}

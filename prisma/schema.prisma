@@ -1,0 +1,358 @@
+// PostgreSQL schema only. Immutability, capacity and publication checks are service-layer invariants.
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  LANDLORD
+  TENANT
+}
+
+enum RentalMode {
+  WHOLE
+  ROOMS
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum UtilityType {
+  ELECTRICITY
+  WATER
+  GAS
+}
+
+enum AllocationMethod {
+  EQUAL
+  PERSON_DAYS
+}
+
+enum VacancyResponsibility {
+  PENDING
+  LANDLORD
+  DISTRIBUTE
+}
+
+enum BillVersionStatus {
+  DRAFT
+  READY
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ContributionKind {
+  TENANT_PREPAYMENT
+  LANDLORD_ADVANCE
+}
+
+model User {
+  authUserId    String?             @unique
+  demoKey       String?             @unique
+  id            String              @id @default(cuid())
+  email         String              @unique
+  name          String
+  role          UserRole
+  createdAt     DateTime            @default(now())
+  properties    Property[]
+  applications  RentalApplication[]
+  tenancies     Tenancy[]
+  documents     SourceDocument[]
+  confirmations RuleConfirmation[]
+  contributions Contribution[]
+}
+
+model Property {
+  demoKey        String?                   @unique
+  id             String                    @id @default(cuid())
+  landlordId     String
+  landlord       User                      @relation(fields: [landlordId], references: [id], onDelete: Restrict)
+  title          String
+  city           String?
+  neighborhood   String?
+  description    String?
+  roomCount      Int                       @default(1)
+  sizeM2         Int?
+  furnished      Boolean                   @default(false)
+  availableFrom  DateTime?                 @db.Date
+  imageKey       String                    @default("living-room")
+  features       String[]                  @default([])
+  isDemo         Boolean                   @default(true)
+  address        String
+  region         String?
+  rentalMode     RentalMode
+  currency       String                    @default("EUR")
+  advertisedRent Decimal?                  @db.Decimal(14, 2)
+  isPublished    Boolean                   @default(false)
+  createdAt      DateTime                  @default(now())
+  rooms          Room[]
+  applications   RentalApplication[]
+  tenancies      Tenancy[]
+  policies       AllocationPolicyVersion[]
+  bills          Bill[]
+
+  @@index([landlordId])
+}
+
+model Room {
+  demoKey      String?                   @unique
+  id           String                    @id @default(cuid())
+  propertyId   String
+  property     Property                  @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  name         String
+  capacity     Int                       @default(1)
+  applications RentalApplication[]
+  tenancies    Tenancy[]
+  policies     AllocationPolicyVersion[]
+  bills        Bill[]
+
+  @@unique([id, propertyId])
+  @@unique([propertyId, name])
+}
+
+model RentalApplication {
+  demoKey            String?           @unique
+  id                 String            @id @default(cuid())
+  propertyId         String
+  property           Property          @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  roomId             String?
+  room               Room?             @relation(fields: [roomId, propertyId], references: [id, propertyId], onDelete: Restrict)
+  tenantId           String
+  tenant             User              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agreement          Json?
+  requestedStartDate DateTime          @db.Date
+  requestedEndDate   DateTime?         @db.Date
+  status             ApplicationStatus @default(PENDING)
+  createdAt          DateTime          @default(now())
+  tenancy            Tenancy?
+
+  @@index([propertyId, status])
+  @@index([tenantId, status])
+}
+
+model Tenancy {
+  demoKey          String?            @unique
+  id               String             @id @default(cuid())
+  applicationId    String             @unique
+  application      RentalApplication  @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  propertyId       String
+  property         Property           @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  roomId           String?
+  room             Room?              @relation(fields: [roomId, propertyId], references: [id, propertyId], onDelete: Restrict)
+  tenantId         String
+  tenant           User               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  // [billingStartDate, billingEndDate); null end means ongoing.
+  billingStartDate DateTime           @db.Date
+  billingEndDate   DateTime?          @db.Date
+  createdAt        DateTime           @default(now())
+  confirmations    RuleConfirmation[]
+  charges          Charge[]
+
+  @@unique([id, tenantId])
+  @@index([propertyId, billingStartDate])
+  @@index([roomId, billingStartDate])
+  @@index([tenantId])
+}
+
+model AllocationPolicyVersion {
+  demoKey               String?               @unique
+  id                    String                @id @default(cuid())
+  propertyId            String
+  property              Property              @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  roomId                String?
+  room                  Room?                 @relation(fields: [roomId, propertyId], references: [id, propertyId], onDelete: Restrict)
+  // Stable policy key plus monotonic version; roomId null covers the property.
+  policyKey             String
+  versionNumber         Int
+  utilityType           UtilityType
+  allocationMethod      AllocationMethod
+  vacancyResponsibility VacancyResponsibility @default(PENDING)
+  effectiveStart        DateTime              @db.Date
+  effectiveEnd          DateTime?             @db.Date
+  terms                 Json
+  createdAt             DateTime              @default(now())
+  confirmations         RuleConfirmation[]
+
+  @@unique([propertyId, policyKey, versionNumber])
+  @@index([propertyId, utilityType])
+}
+
+model RuleConfirmation {
+  demoKey         String?                 @unique
+  id              String                  @id @default(cuid())
+  policyVersionId String
+  policy          AllocationPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  tenancyId       String
+  tenancy         Tenancy                 @relation(fields: [tenancyId], references: [id], onDelete: Restrict)
+  userId          String
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  confirmedAt     DateTime                @default(now())
+
+  @@unique([policyVersionId, tenancyId, userId])
+}
+
+model SourceDocument {
+  id             String   @id @default(cuid())
+  landlordId     String
+  landlord       User     @relation(fields: [landlordId], references: [id], onDelete: Restrict)
+  uploadedAt     DateTime @default(now())
+  storagePath    String?
+  isSynthetic    Boolean  @default(false)
+  fileUrl        String
+  fileHash       String
+  sourceLanguage String?
+  extractedData  Json?
+  bill           Bill?
+
+  @@unique([landlordId, fileHash])
+}
+
+model Bill {
+  id               String         @id @default(cuid())
+  propertyId       String
+  property         Property       @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  roomId           String?
+  room             Room?          @relation(fields: [roomId, propertyId], references: [id, propertyId], onDelete: Restrict)
+  sourceDocumentId String         @unique
+  sourceDocument   SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Restrict)
+  utilityType      UtilityType
+  createdAt        DateTime       @default(now())
+  processing       ProcessingJob?
+  versions         BillVersion[]
+  contributions    Contribution[]
+
+  @@index([propertyId, utilityType])
+}
+
+model BillVersion {
+  id                   String            @id @default(cuid())
+  billId               String
+  bill                 Bill              @relation(fields: [billId], references: [id], onDelete: Restrict)
+  versionNumber        Int
+  createdAt            DateTime          @default(now())
+  publishedAt          DateTime?
+  status               BillVersionStatus @default(DRAFT)
+  // Nulls are valid during extraction; READY requires complete, reconciled data.
+  servicePeriodStart   DateTime?         @db.Date
+  servicePeriodEnd     DateTime?         @db.Date
+  currency             String
+  settlementTotal      Decimal?          @db.Decimal(14, 2)
+  advancePayments      Decimal?          @db.Decimal(14, 2)
+  amountDue            Decimal?          @db.Decimal(14, 2)
+  nextPeriodAdvance    Decimal?          @db.Decimal(14, 2)
+  allocationBase       Decimal?          @db.Decimal(14, 2)
+  landlordShare        Decimal?          @db.Decimal(14, 2)
+  extractedLineItems   Json?
+  reconciliationIssues Json?
+  // Includes source evidence, tenants/dates, policy versions and manual corrections.
+  snapshot             Json?
+  inputFingerprint     String?
+  publicationKey       String?           @unique
+  charges              Charge[]
+
+  @@unique([billId, versionNumber])
+  @@index([billId, status])
+}
+
+model Contribution {
+  id                String           @id @default(cuid())
+  billId            String
+  bill              Bill             @relation(fields: [billId], references: [id], onDelete: Restrict)
+  payerId           String
+  payer             User             @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  kind              ContributionKind
+  amount            Decimal          @db.Decimal(14, 2)
+  currency          String
+  evidenceType      String
+  evidenceReference String
+  recordedAt        DateTime         @default(now())
+  credits           ChargeCredit[]
+
+  @@index([billId, payerId])
+}
+
+model Charge {
+  id                  String           @id @default(cuid())
+  billVersionId       String
+  billVersion         BillVersion      @relation(fields: [billVersionId], references: [id], onDelete: Restrict)
+  tenancyId           String
+  tenantId            String
+  tenancy             Tenancy          @relation(fields: [tenancyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  daysOccupied        Int
+  // Rational calculation inputs also live in calculationDetails; this string is display precision.
+  shareBeforeRounding String
+  actualShare         Decimal          @db.Decimal(14, 2)
+  remainderCents      Int              @default(0)
+  netAmountDue        Decimal          @db.Decimal(14, 2)
+  currency            String
+  explanationCN       String?
+  explanationEN       String?
+  calculationDetails  Json
+  confirmedAt         DateTime?
+  credits             ChargeCredit[]
+  paymentAttempts     PaymentAttempt[]
+
+  @@unique([billVersionId, tenancyId])
+  @@index([tenantId])
+}
+
+// Explicit applications avoid treating landlord advances as tenant credits.
+model ChargeCredit {
+  id             String       @id @default(cuid())
+  chargeId       String
+  charge         Charge       @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+  contributionId String
+  contribution   Contribution @relation(fields: [contributionId], references: [id], onDelete: Restrict)
+  amount         Decimal      @db.Decimal(14, 2)
+
+  @@unique([chargeId, contributionId])
+  @@index([contributionId])
+}
+
+model PaymentAttempt {
+  id                String        @id @default(cuid())
+  chargeId          String
+  charge            Charge        @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+  captureRequestKey String        @unique @default(dbgenerated("gen_random_uuid()::text"))
+  verifiedAt        DateTime?
+  idempotencyKey    String        @unique
+  paypalOrderId     String?       @unique
+  paypalCaptureId   String?       @unique
+  amount            Decimal       @db.Decimal(14, 2)
+  currency          String
+  payeeMerchantId   String
+  status            PaymentStatus @default(PENDING)
+  createdAt         DateTime      @default(now())
+  completedAt       DateTime?
+
+  @@index([chargeId, status])
+}
+
+model ProcessingJob {
+  id         String    @id @default(cuid())
+  billId     String    @unique
+  bill       Bill      @relation(fields: [billId], references: [id], onDelete: Restrict)
+  status     String    @default("QUEUED")
+  attempts   Int       @default(0)
+  leaseToken String?
+  leaseUntil DateTime?
+  errorCode  String?
+  updatedAt  DateTime  @updatedAt
+}
